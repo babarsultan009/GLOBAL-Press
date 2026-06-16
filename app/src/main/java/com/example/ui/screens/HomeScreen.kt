@@ -95,6 +95,10 @@ fun HomeScreen(
         "Pakistan" to listOf("All", "Dawn", "The News International", "The Nation", "Daily Times", "Business Recorder")
     )
 
+    val isAdmin by viewModel.isAdmin.collectAsState()
+    var showDeveloperDialog by remember { mutableStateOf(false) }
+    var showPasswordPromptDialog by remember { mutableStateOf(false) }
+
     var showAllBreaking by remember { mutableStateOf(false) }
     var showRegionSheet by remember { mutableStateOf(false) }
     var regionSearchQuery by remember { mutableStateOf("") }
@@ -308,6 +312,31 @@ fun HomeScreen(
                                         showSecurityHubDialog = true
                                     }
                                 )
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                if (isAdmin) {
+                                    DropdownMenuItem(
+                                        text = { Text("🔧 Backend Dev Settings", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                                        onClick = { 
+                                            showSecurityMenu = false
+                                            showDeveloperDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("🔒 Lock Developer Options", fontWeight = FontWeight.Normal) },
+                                        onClick = { 
+                                            showSecurityMenu = false
+                                            viewModel.logoutAdmin()
+                                        }
+                                    )
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text("🔓 Unlock Developer Options", fontWeight = FontWeight.Normal) },
+                                        onClick = { 
+                                            showSecurityMenu = false
+                                            showPasswordPromptDialog = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     },
@@ -801,6 +830,27 @@ fun HomeScreen(
             },
             shape = RoundedCornerShape(24.dp),
             containerColor = MaterialTheme.colorScheme.surface
+        )
+    }
+
+    if (showPasswordPromptDialog) {
+        PasswordPromptDialog(
+            onDismiss = { showPasswordPromptDialog = false },
+            onSubmit = { pwd ->
+                val success = viewModel.loginAsAdmin(pwd)
+                if (success) {
+                    showPasswordPromptDialog = false
+                    showDeveloperDialog = true
+                }
+            }
+        )
+    }
+
+    if (showDeveloperDialog) {
+        DeveloperSettingsDialog(
+            viewModel = viewModel,
+            categories = categories.filter { it != "All" },
+            onDismiss = { showDeveloperDialog = false }
         )
     }
     }
@@ -1423,6 +1473,605 @@ fun SecurityPrivacyDashboard(viewModel: NewsViewModel) {
                         "SECURE DATA PURGE (ZEROIZE STATE)",
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PasswordPromptDialog(
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    var isError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("Unlock Developer Portal", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    "Please enter the Admin Security Code to gain root privilege and edit active preferences/triggers.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { 
+                        password = it
+                        isError = false
+                    },
+                    label = { Text("Developer Password") },
+                    singleLine = true,
+                    isError = isError,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (isError) {
+                    Text(
+                        "Invalid code. Access denied.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (password.trim() == "admin" || password.trim() == "1234") {
+                        onSubmit(password)
+                    } else {
+                        isError = true
+                    }
+                }
+            ) {
+                Text("Verify Authorization")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(24.dp)
+    )
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun DeveloperSettingsDialog(
+    viewModel: NewsViewModel,
+    categories: List<String>,
+    onDismiss: () -> Unit
+) {
+    val prefs by viewModel.userPreferences.collectAsState()
+    val isServerOffline by viewModel.isServerOffline.collectAsState()
+    val consoleLogs by viewModel.developerConsoleLogs.collectAsState()
+
+    // State for Injector form
+    var injectTitle by remember { mutableStateOf("") }
+    var injectSource by remember { mutableStateOf("") }
+    var injectSnippet by remember { mutableStateOf("") }
+    var injectCategory by remember { mutableStateOf(categories.firstOrNull() ?: "Technology") }
+    var injectIsBreaking by remember { mutableStateOf(false) }
+    var categoryDropdownExpanded by remember { mutableStateOf(false) }
+
+    // State for custom block/follow source addition
+    var customSourceInput by remember { mutableStateOf("") }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.background,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Title Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "🔧 Backend Developer Settings",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "Admin privileges verified",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                // Scrollable Panels
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    
+                    // Card 1: Network & Server State Simulator
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "📡 NETWORK / INFRASTRUCTURE SIMULATION",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "Simulated Server Offline",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Forces active network fetches and news databases to report empty/offline fallback states instantly.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = isServerOffline,
+                                    onCheckedChange = { viewModel.toggleServerOffline() }
+                                )
+                            }
+                        }
+                    }
+
+                    // Card 2: Custom Article Direct Injector Command
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                "📝 DATABASE INJECTOR CONTROL",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            
+                            Text(
+                                "Inject mock articles into the global feed with custom configurations to test real-time update listeners.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            OutlinedTextField(
+                                value = injectTitle,
+                                onValueChange = { injectTitle = it },
+                                label = { Text("Article Title") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = injectSource,
+                                    onValueChange = { injectSource = it },
+                                    label = { Text("News Source") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                
+                                Box(modifier = Modifier.weight(1f)) {
+                                    OutlinedTextField(
+                                        value = injectCategory,
+                                        onValueChange = { },
+                                        label = { Text("Category") },
+                                        readOnly = true,
+                                        trailingIcon = {
+                                            IconButton(onClick = { categoryDropdownExpanded = true }) {
+                                                Icon(Icons.Default.List, contentDescription = "Select Category")
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    DropdownMenu(
+                                        expanded = categoryDropdownExpanded,
+                                        onDismissRequest = { categoryDropdownExpanded = false }
+                                    ) {
+                                        categories.forEach { cat ->
+                                            DropdownMenuItem(
+                                                text = { Text(cat) },
+                                                onClick = {
+                                                    injectCategory = cat
+                                                    categoryDropdownExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(4.dp))
+
+                            OutlinedTextField(
+                                value = injectSnippet,
+                                onValueChange = { injectSnippet = it },
+                                label = { Text("News Snippet Summary") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = injectIsBreaking,
+                                        onCheckedChange = { injectIsBreaking = it }
+                                    )
+                                    Text("Mark as BREAKING News article", style = MaterialTheme.typography.bodyMedium)
+                                }
+                                Button(
+                                    onClick = {
+                                        if (injectTitle.isNotBlank() && injectSource.isNotBlank()) {
+                                            viewModel.injectCustomArticle(
+                                                title = injectTitle,
+                                                source = injectSource,
+                                                category = injectCategory,
+                                                snippet = if (injectSnippet.isBlank()) "No snippet provided." else injectSnippet,
+                                                isBreaking = injectIsBreaking
+                                            )
+                                            injectTitle = ""
+                                            injectSource = ""
+                                            injectSnippet = ""
+                                            injectIsBreaking = false
+                                        }
+                                    },
+                                    enabled = injectTitle.isNotBlank() && injectSource.isNotBlank()
+                                ) {
+                                    Text("Inject to Feed")
+                                }
+                            }
+                        }
+                    }
+
+                    // Card 3: Dynamic Category Weight Tuning
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "🎛️ RECOMMENDATION WEIGHT TUNER",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            Text(
+                                "Calibrate exact recommendation scoring models for each category. Positive scores promote relevant content; negative scores demote.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+
+                            categories.forEach { cat ->
+                                val score = prefs.weights[cat] ?: 0
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        cat,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.width(110.dp)
+                                    )
+                                    Slider(
+                                        value = score.toFloat(),
+                                        onValueChange = { viewModel.setCategoryWeight(cat, it.toInt()) },
+                                        valueRange = -15f..15f,
+                                        steps = 30,
+                                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .width(44.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(
+                                                if (score > 0) MaterialTheme.colorScheme.primaryContainer 
+                                                else if (score < 0) MaterialTheme.colorScheme.errorContainer
+                                                else MaterialTheme.colorScheme.secondaryContainer
+                                            )
+                                            .padding(vertical = 4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = (if (score > 0) "+$score" else "$score"),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (score > 0) MaterialTheme.colorScheme.onPrimaryContainer
+                                                   else if (score < 0) MaterialTheme.colorScheme.onErrorContainer
+                                                   else MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Card 4: Blacklist & Whitelist Source Controls
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                "🛡️ WHITELIST & BLACKLISTED SOURCE ACTIONS",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = customSourceInput,
+                                    onValueChange = { customSourceInput = it },
+                                    label = { Text("News Outlet Name") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(
+                                    onClick = {
+                                        if (customSourceInput.isNotBlank()) {
+                                            viewModel.addFollowedSource(customSourceInput.trim())
+                                            customSourceInput = ""
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    enabled = customSourceInput.isNotBlank()
+                                ) {
+                                    Text("Follow")
+                                }
+                                Button(
+                                    onClick = {
+                                        if (customSourceInput.isNotBlank()) {
+                                            viewModel.addBlockedSource(customSourceInput.trim())
+                                            customSourceInput = ""
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                    enabled = customSourceInput.isNotBlank()
+                                ) {
+                                    Text("Block")
+                                }
+                            }
+
+                            // Followed lists
+                            Text("Whitelisted Sources (Followed):", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            if (prefs.followedSources.isEmpty()) {
+                                Text("No custom followed sources.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            } else {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    prefs.followedSources.forEach { source ->
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                                .clickable { viewModel.toggleFollowSource(source) }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                            Spacer(Modifier.width(6.dp))
+                                            Icon(
+                                                Icons.Default.Close, 
+                                                contentDescription = "Remove", 
+                                                modifier = Modifier.size(12.dp),
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(4.dp))
+
+                            // Blocked lists
+                            Text("Blacklisted Sources (Blocked from entire feed):", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            if (prefs.blockedSources.isEmpty()) {
+                                Text("No blocked sources.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            } else {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    prefs.blockedSources.forEach { source ->
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.errorContainer)
+                                                .clickable { viewModel.toggleBlockSource(source) }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                                            Spacer(Modifier.width(6.dp))
+                                            Icon(
+                                                Icons.Default.Close, 
+                                                contentDescription = "Remove", 
+                                                modifier = Modifier.size(12.dp),
+                                                tint = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Card 5: Sandbox Purge & Preferences Factory Defaults
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "🚨 FACTORY DEFAULTS OVERRIDES",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "Hard Purge & Reset Onboarding",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Clears all personal coefficients, interests, locks, blocklists, and restarts the onboard setup flow.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Button(
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                    onClick = { viewModel.resetAllPreferences() }
+                                ) {
+                                    Text("Zeroize Engine")
+                                }
+                            }
+                        }
+                    }
+
+                    // Card 6: Developer Real-time Transaction Console
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "💬 REAL-TIME DIAGNOSTIC MONOSPACE CONSOLE",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF4CAF50),
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                Text(
+                                    "SYSTEM MONITORING",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFFEB3B)
+                                )
+                            }
+                            
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 120.dp, max = 220.dp)
+                                    .background(Color(0xFF0F0F0F))
+                                    .padding(12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    consoleLogs.forEach { log ->
+                                        Text(
+                                            text = log,
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                            color = if (log.contains("WARNING") || log.contains("FAIL")) Color(0xFFFF5722) 
+                                                   else if (log.contains("COMMAND")) Color(0xFFFFC107)
+                                                   else Color(0xFF00FF66),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(bottom = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Close Button in footer
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Button(
+                        shape = RoundedCornerShape(12.dp),
+                        onClick = onDismiss
+                    ) {
+                        Text("Close Panel")
+                    }
                 }
             }
         }

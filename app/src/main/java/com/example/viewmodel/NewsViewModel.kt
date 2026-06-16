@@ -142,6 +142,52 @@ class NewsViewModel : ViewModel() {
     private val _hasNotificationPermission = MutableStateFlow(true)
     val hasNotificationPermission = _hasNotificationPermission.asStateFlow()
 
+    // Admin & developer settings state variables
+    private val _isAdmin = MutableStateFlow(false)
+    val isAdmin = _isAdmin.asStateFlow()
+
+    private val _isServerOffline = MutableStateFlow(false)
+    val isServerOffline = _isServerOffline.asStateFlow()
+
+    private val _developerConsoleLogs = MutableStateFlow<List<String>>(
+        listOf(
+            "System initialized successfully.",
+            "Database engine connected: active channels verified.",
+            "Secured sandbox container setup complete.",
+            "Awaiting admin command hook."
+        )
+    )
+    val developerConsoleLogs = _developerConsoleLogs.asStateFlow()
+
+    fun addDevLog(message: String) {
+        val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val current = _developerConsoleLogs.value.toMutableList()
+        current.add(0, "[$timeStr] $message")
+        _developerConsoleLogs.value = current.take(60)
+    }
+
+    fun loginAsAdmin(password: String): Boolean {
+        if (password.trim() == "admin" || password.trim() == "1234") {
+            _isAdmin.value = true
+            addDevLog("Admin panel successfully unlocked with credentials.")
+            return true
+        }
+        addDevLog("WARNING: Unauthorized admin login attempt with: '$password'")
+        return false
+    }
+
+    fun logoutAdmin() {
+        _isAdmin.value = false
+        addDevLog("Admin logged out. developer options locked.")
+    }
+
+    fun toggleServerOffline(): Boolean {
+        _isServerOffline.value = !_isServerOffline.value
+        val state = if (_isServerOffline.value) "OFFLINE" else "ONLINE"
+        addDevLog("COMMAND: Developer toggled server state to: $state")
+        return _isServerOffline.value
+    }
+
     // Onboarding & Interest Setup
     private val _onboardingCompleted = MutableStateFlow(false)
     val onboardingCompleted = _onboardingCompleted.asStateFlow()
@@ -173,26 +219,30 @@ class NewsViewModel : ViewModel() {
         _searchQuery,
         _selectedCategory,
         combine(_selectedRegion, _selectedNewspaper) { r, n -> Pair(r, n) },
-        combine(_selectedAuthor, userPreferences) { auth, prefs -> Pair(auth, prefs) }
-    ) { articles, query, category, regionAndNewspaper, authorAndPrefs ->
+        combine(_selectedAuthor, userPreferences, _isServerOffline) { auth, prefs, offline -> Triple(auth, prefs, offline) }
+    ) { articles, query, category, regionAndNewspaper, triple ->
         val (region, newspaper) = regionAndNewspaper
-        val (author, prefs) = authorAndPrefs
-        articles.filter { article ->
-            val matchesQuery = article.title.contains(query, ignoreCase = true) ||
-                    article.snippet.contains(query, ignoreCase = true) ||
-                    article.fullText.contains(query, ignoreCase = true)
-            val matchesCategory = category == "All" || article.category == category
-            val matchesRegion = region == "All" || article.country == region
-            val matchesNewspaper = newspaper == "All" || article.source == newspaper
-            val matchesAuthor = author == null || article.author.startsWith(author)
-            val isNotBlocked = !prefs.blockedSources.contains(article.source)
-            val matchesInterest = prefs.interests.isEmpty() || category != "All" || prefs.interests.contains(article.category)
+        val (author, prefs, offline) = triple
+        if (offline) {
+            emptyList()
+        } else {
+            articles.filter { article ->
+                val matchesQuery = article.title.contains(query, ignoreCase = true) ||
+                        article.snippet.contains(query, ignoreCase = true) ||
+                        article.fullText.contains(query, ignoreCase = true)
+                val matchesCategory = category == "All" || article.category == category
+                val matchesRegion = region == "All" || article.country == region
+                val matchesNewspaper = newspaper == "All" || article.source == newspaper
+                val matchesAuthor = author == null || article.author.startsWith(author)
+                val isNotBlocked = !prefs.blockedSources.contains(article.source)
+                val matchesInterest = prefs.interests.isEmpty() || category != "All" || prefs.interests.contains(article.category)
 
-            matchesQuery && matchesCategory && matchesRegion && matchesNewspaper && matchesAuthor && isNotBlocked && matchesInterest && !article.isBreaking
-        }.sortedWith { a, b ->
-            val scoreA = (if (prefs.followedSources.contains(a.source)) 10 else 0) + (prefs.weights[a.category] ?: 0) * 3
-            val scoreB = (if (prefs.followedSources.contains(b.source)) 10 else 0) + (prefs.weights[b.category] ?: 0) * 3
-            scoreB.compareTo(scoreA)
+                matchesQuery && matchesCategory && matchesRegion && matchesNewspaper && matchesAuthor && isNotBlocked && matchesInterest && !article.isBreaking
+            }.sortedWith { a, b ->
+                val scoreA = (if (prefs.followedSources.contains(a.source)) 10 else 0) + (prefs.weights[a.category] ?: 0) * 3
+                val scoreB = (if (prefs.followedSources.contains(b.source)) 10 else 0) + (prefs.weights[b.category] ?: 0) * 3
+                scoreB.compareTo(scoreA)
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -201,26 +251,30 @@ class NewsViewModel : ViewModel() {
         _searchQuery,
         _selectedCategory,
         combine(_selectedRegion, _selectedNewspaper) { r, n -> Pair(r, n) },
-        combine(_selectedAuthor, userPreferences) { auth, prefs -> Pair(auth, prefs) }
-    ) { articles, query, category, regionAndNewspaper, authorAndPrefs ->
+        combine(_selectedAuthor, userPreferences, _isServerOffline) { auth, prefs, offline -> Triple(auth, prefs, offline) }
+    ) { articles, query, category, regionAndNewspaper, triple ->
         val (region, newspaper) = regionAndNewspaper
-        val (author, prefs) = authorAndPrefs
-        articles.filter { article ->
-            val matchesQuery = article.title.contains(query, ignoreCase = true) ||
-                    article.snippet.contains(query, ignoreCase = true) ||
-                    article.fullText.contains(query, ignoreCase = true)
-            val matchesCategory = category == "All" || article.category == category
-            val matchesRegion = region == "All" || article.country == region
-            val matchesNewspaper = newspaper == "All" || article.source == newspaper
-            val matchesAuthor = author == null || article.author.startsWith(author)
-            val isNotBlocked = !prefs.blockedSources.contains(article.source)
-            val matchesInterest = prefs.interests.isEmpty() || category != "All" || prefs.interests.contains(article.category)
+        val (author, prefs, offline) = triple
+        if (offline) {
+            emptyList()
+        } else {
+            articles.filter { article ->
+                val matchesQuery = article.title.contains(query, ignoreCase = true) ||
+                        article.snippet.contains(query, ignoreCase = true) ||
+                        article.fullText.contains(query, ignoreCase = true)
+                val matchesCategory = category == "All" || article.category == category
+                val matchesRegion = region == "All" || article.country == region
+                val matchesNewspaper = newspaper == "All" || article.source == newspaper
+                val matchesAuthor = author == null || article.author.startsWith(author)
+                val isNotBlocked = !prefs.blockedSources.contains(article.source)
+                val matchesInterest = prefs.interests.isEmpty() || category != "All" || prefs.interests.contains(article.category)
 
-            matchesQuery && matchesCategory && matchesRegion && matchesNewspaper && matchesAuthor && isNotBlocked && matchesInterest && article.isBreaking
-        }.sortedWith { a, b ->
-            val scoreA = (if (prefs.followedSources.contains(a.source)) 10 else 0) + (prefs.weights[a.category] ?: 0) * 3
-            val scoreB = (if (prefs.followedSources.contains(b.source)) 10 else 0) + (prefs.weights[b.category] ?: 0) * 3
-            scoreB.compareTo(scoreA)
+                matchesQuery && matchesCategory && matchesRegion && matchesNewspaper && matchesAuthor && isNotBlocked && matchesInterest && article.isBreaking
+            }.sortedWith { a, b ->
+                val scoreA = (if (prefs.followedSources.contains(a.source)) 10 else 0) + (prefs.weights[a.category] ?: 0) * 3
+                val scoreB = (if (prefs.followedSources.contains(b.source)) 10 else 0) + (prefs.weights[b.category] ?: 0) * 3
+                scoreB.compareTo(scoreA)
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -259,34 +313,98 @@ class NewsViewModel : ViewModel() {
     fun adjustCategoryWeight(category: String, isIncrement: Boolean) {
         val current = _categoryWeights.value.toMutableMap()
         val score = current[category] ?: 0
-        current[category] = score + (if (isIncrement) 1 else -1)
+        val delta = if (isIncrement) 1 else -1
+        val newScore = score + delta
+        current[category] = newScore
         _categoryWeights.value = current
+        addDevLog("PREFERENCE: Adjusted category '$category' weight to $newScore (Delta: ${if (isIncrement) "+1" else "-1"})")
+    }
+
+    fun setCategoryWeight(category: String, weight: Int) {
+        val current = _categoryWeights.value.toMutableMap()
+        current[category] = weight
+        _categoryWeights.value = current
+        addDevLog("COMMAND: Admin set category '$category' weight directly to $weight")
     }
 
     fun toggleBlockSource(source: String) {
         val current = _blockedSources.value.toMutableSet()
         if (current.contains(source)) {
             current.remove(source)
+            addDevLog("PREFERENCE: Unblocked news source '$source'")
         } else {
             current.add(source)
             val followed = _followedSources.value.toMutableSet()
             followed.remove(source)
             _followedSources.value = followed
+            addDevLog("PREFERENCE: Blocked news source '$source' (any active follows cleared)")
         }
         _blockedSources.value = current
+    }
+
+    fun addBlockedSource(source: String) {
+        val current = _blockedSources.value.toMutableSet()
+        current.add(source)
+        _blockedSources.value = current
+        val followed = _followedSources.value.toMutableSet()
+        followed.remove(source)
+        _followedSources.value = followed
+        addDevLog("COMMAND: Admin directly blacklisted source: '$source'")
     }
 
     fun toggleFollowSource(source: String) {
         val current = _followedSources.value.toMutableSet()
         if (current.contains(source)) {
             current.remove(source)
+            addDevLog("PREFERENCE: Unfollowed news source '$source'")
         } else {
             current.add(source)
             val blocked = _blockedSources.value.toMutableSet()
             blocked.remove(source)
             _blockedSources.value = blocked
+            addDevLog("PREFERENCE: Followed news source '$source' (any active blocks cleared)")
         }
         _followedSources.value = current
+    }
+
+    fun addFollowedSource(source: String) {
+        val current = _followedSources.value.toMutableSet()
+        current.add(source)
+        _followedSources.value = current
+        val blocked = _blockedSources.value.toMutableSet()
+        blocked.remove(source)
+        _blockedSources.value = blocked
+        addDevLog("COMMAND: Admin directly whitelisted source: '$source'")
+    }
+
+    fun resetAllPreferences() {
+        _categoryWeights.value = emptyMap()
+        _blockedSources.value = emptySet()
+        _followedSources.value = emptySet()
+        _selectedInterests.value = emptySet()
+        _onboardingCompleted.value = false
+        addDevLog("COMMAND: Reset all personalized preferences & re-enabled onboarding flow.")
+    }
+
+    fun injectCustomArticle(title: String, source: String, category: String, snippet: String, isBreaking: Boolean) {
+        val newArticle = com.example.model.NewsArticle(
+            id = "custom_" + System.currentTimeMillis(),
+            title = title,
+            snippet = snippet,
+            fullText = "This is a custom injected developer article for debugging and backend validation.\n\n$snippet\n\nAdditional reports state that regional networks are monitoring this event closely.",
+            imageUrl = "https://picsum.photos/800/600?random=" + (1..100).random(),
+            category = category,
+            date = System.currentTimeMillis(),
+            source = source,
+            country = "United States",
+            author = "Dev Admin",
+            authorImageUrl = "https://i.pravatar.cc/150?u=devadmin",
+            isBreaking = isBreaking
+        )
+        val current = _allArticles.value.toMutableList()
+        current.add(0, newArticle)
+        _allArticles.value = current
+        addDevLog("COMMAND: Injected custom article: '$title' in '$category' (Breaking: $isBreaking)")
     }
 
     fun getTimelineForEvent(eventId: String): List<TimelineEvent> {
