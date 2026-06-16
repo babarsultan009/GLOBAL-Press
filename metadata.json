@@ -1,0 +1,6 @@
+{
+  "name": "Global News",
+  "description": "Global newspapers arranged countrywise, with Gemini AI summaries and Eye Comfort mode reading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
